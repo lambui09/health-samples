@@ -216,7 +216,7 @@ class ExerciseService : LifecycleService() {
             exerciseNotificationManager.createNotificationChannel()
             val serviceState = exerciseServiceMonitor.exerciseServiceState.value
             lifecycle.coroutineScope.launch(Dispatchers.Main.immediate) {
-                while (Build.VERSION.SDK_INT >= 33 && this@ExerciseService.checkSelfPermission(
+                while (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && this@ExerciseService.checkSelfPermission(
                         Manifest.permission.BODY_SENSORS
                     ) != PERMISSION_GRANTED
                 ) {
