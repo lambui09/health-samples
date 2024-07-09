@@ -16,15 +16,21 @@
 
 package com.example.exercisesamplecompose.service
 
+import android.Manifest
 import android.content.ContentValues.TAG
 import android.content.Intent
+import android.content.pm.PackageManager.PERMISSION_GRANTED
 import android.content.pm.ServiceInfo
+import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.health.services.client.data.ExerciseState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.coroutineScope
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.exercisesamplecompose.data.ExerciseClientManager
@@ -56,7 +62,7 @@ class ExerciseService : LifecycleService() {
     private val localBinder = LocalBinder()
 
     private val serviceRunningInForeground: Boolean
-        get() = this.foregroundServiceType != ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE
+        get() = this.foregroundServiceType != FOREGROUND_SERVICE_TYPE_NONE
 
     private suspend fun isExerciseInProgress() =
         exerciseClientManager.exerciseClient.isExerciseInProgress()
@@ -164,8 +170,20 @@ class ExerciseService : LifecycleService() {
     private fun handleBind() {
         if (!isBound) {
             isBound = true
+            val intent = Intent(this, this::class.java)
+            val serviceState = exerciseServiceMonitor.exerciseServiceState.value
             // Start ourself. This will begin collecting exercise state if we aren't already.
-            startService(Intent(this, this::class.java))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    ExerciseNotificationManager.NOTIFICATION_ID,
+                    exerciseNotificationManager.buildNotification(
+                        serviceState.activeDurationCheckpoint?.activeDuration ?: Duration.ZERO
+                    ),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startService(intent)
+            }
         }
     }
 
@@ -197,12 +215,27 @@ class ExerciseService : LifecycleService() {
 
             exerciseNotificationManager.createNotificationChannel()
             val serviceState = exerciseServiceMonitor.exerciseServiceState.value
-            startForeground(
-                ExerciseNotificationManager.NOTIFICATION_ID,
-                exerciseNotificationManager.buildNotification(
-                    serviceState.activeDurationCheckpoint?.activeDuration ?: Duration.ZERO
+            lifecycle.coroutineScope.launch(Dispatchers.Main.immediate) {
+                while (Build.VERSION.SDK_INT >= 33 && this@ExerciseService.checkSelfPermission(
+                        Manifest.permission.BODY_SENSORS
+                    ) != PERMISSION_GRANTED
+                ) {
+                    delay(1.seconds)
+                }
+                val foregroundServiceType =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                    } else {
+                        FOREGROUND_SERVICE_TYPE_NONE
+                    }
+                startForeground(
+                    ExerciseNotificationManager.NOTIFICATION_ID,
+                    exerciseNotificationManager.buildNotification(
+                        serviceState.activeDurationCheckpoint?.activeDuration ?: Duration.ZERO
+                    ),
+                    foregroundServiceType
                 )
-            )
+            }
         }
     }
 
